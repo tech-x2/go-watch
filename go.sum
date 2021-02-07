@@ -1,0 +1,6 @@
+github.com/pkg/exec v0.0.0-20150614095509-0bd164ad2a5a h1:EN123kAtAAE2pg/+TvBsUBZfHCWNNFyL2ZBPPfNWAc0=
+github.com/pkg/exec v0.0.0-20150614095509-0bd164ad2a5a/go.mod h1:b95YoNrAnScjaWG+asr8lxqlrsPUcT2ZEBcjvVGshMo=
+github.com/radovskyb/watcher v1.0.7 h1:AYePLih6dpmS32vlHfhCeli8127LzkIgwJGcwwe8tUE=
+github.com/radovskyb/watcher v1.0.7/go.mod h1:78okwvY5wPdzcb1UYnip1pvrZNIVEIh/Cm+ZuvsUYIg=
+github.com/spf13/pflag v1.0.5 h1:iy+VFUOCP1a+8yFto/drg2CJ5u0yRoB7fZw3DKv/JXA=
+github.com/spf13/pflag v1.0.5/go.mod h1:McXfInJRrz4CZXVZOBLb0bTZqETkiAhM9Iw0y3An2Bg=
