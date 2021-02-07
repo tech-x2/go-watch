@@ -4,7 +4,9 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"os/signal"
 	"path/filepath"
+	"syscall"
 	"time"
 
 	"github.com/pkg/exec"
@@ -163,6 +165,9 @@ func main() {
 		go func() {
 			for {
 				cmd := exec.Command(cmds[0], cmds[1:]...)
+				cmd.SysProcAttr = &syscall.SysProcAttr{
+					Setpgid: true,
+				}
 
 				if err := cmd.Start(
 					exec.Stdout(os.Stderr),
@@ -171,10 +176,17 @@ func main() {
 					log.Fatal(err)
 				}
 
-				<-ch
+				sig := make(chan os.Signal)
 
-				if err := cmd.Process.Kill(); err != nil {
-					log.Fatal(err)
+				signal.Notify(sig, syscall.SIGHUP, syscall.SIGINT, syscall.SIGTERM)
+
+				select {
+				case <-sig:
+					syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+
+					os.Exit(0)
+				case <-ch:
+					syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
 				}
 			}
 		}()
