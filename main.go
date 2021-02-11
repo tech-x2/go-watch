@@ -11,188 +11,193 @@ import (
 
 	"github.com/pkg/exec"
 	"github.com/radovskyb/watcher"
-	flag "github.com/spf13/pflag"
+	"github.com/urfave/cli/v2"
 )
 
 var (
-	Version  = "unset"
-	Revision = "unset"
+	Version  = "0.0.0"
+	Revision = "0"
 )
-
-const usage = `usage:
-  watch [--verbose] [--interval] [--targets] [--excludes] [command]
-
-options:`
 
 func main() {
 	log.SetFlags(0)
 	log.SetPrefix("watch: ")
 	log.SetOutput(os.Stderr)
 
-	flag.Usage = func() {
-		fmt.Println(usage)
-		flag.PrintDefaults()
-	}
+	cmd := &cli.App{
+		Name:      "watch",
+		UsageText: "watch [--interval] [--targets] [--excludes] [--verbose] [command]",
+		Version:   fmt.Sprintf("%s.%s", Version, Revision),
+		Flags: []cli.Flag{
+			&cli.IntFlag{
+				Name:    "interval",
+				Aliases: []string{"i"},
+				Value:   5,
+				Usage:   "Polling interval",
+			},
+			&cli.StringSliceFlag{
+				Name:    "targets",
+				Aliases: []string{"t"},
+				Value:   cli.NewStringSlice(".go"),
+				Usage:   "Watch target exts",
+			},
+			&cli.StringSliceFlag{
+				Name:    "excludes",
+				Aliases: []string{"e"},
+				Value:   cli.NewStringSlice(),
+				Usage:   "Exclude files",
+			},
+			&cli.BoolFlag{
+				Name:  "verbose",
+				Value: false,
+				Usage: "Show verbose logs",
+			},
+		},
+		Action: func(ctx *cli.Context) error {
+			var (
+				varboseFlag  = ctx.Bool("verbose")
+				interval     = ctx.Int("interval")
+				targetExts   = ctx.StringSlice("targets")
+				excludeFiles = ctx.StringSlice("excludes")
+				cmds         = ctx.Args().Slice()
+			)
 
-	var (
-		versionFlag  bool
-		helpFlag     bool
-		varboseFlag  bool
-		interval     uint
-		targetExts   []string
-		excludeFiles []string
-	)
-
-	flag.BoolVar(&versionFlag, "version", false, "show version")
-	flag.BoolVarP(&helpFlag, "help", "h", false, "show help")
-	flag.BoolVarP(&varboseFlag, "verbose", "v", false, "show varbose logs")
-	flag.UintVarP(&interval, "interval", "i", 5, "polling interval")
-	flag.StringSliceVarP(&targetExts, "targets", "t", []string{".go"}, "watch target exts")
-	flag.StringSliceVarP(&excludeFiles, "excludes", "e", []string{}, "exclude files")
-	flag.Parse()
-
-	cmds := flag.Args()
-
-	if versionFlag {
-		fmt.Println("watch version:", Version)
-
-		return
-	}
-
-	if helpFlag || len(cmds) == 0 {
-		flag.Usage()
-
-		return
-	}
-
-	varbose := func(args ...interface{}) {
-		if varboseFlag {
-			log.Print(args...)
-		}
-	}
-
-	w := watcher.New()
-	{
-		defer w.Close()
-
-		ch := make(chan struct{}, 1)
-
-		go func() {
-			for {
-				select {
-				case ev := <-w.Event:
-					switch ev.Op {
-					case watcher.Chmod:
-					default:
-						varbose("received event: ", ev)
-
-						ch <- struct{}{}
-					}
-				case err := <-w.Error:
-					switch err {
-					case watcher.ErrWatchedFileDeleted:
-					default:
-						log.Fatal(err)
-					}
-				case <-w.Closed:
-					return
+			varbose := func(args ...interface{}) {
+				if varboseFlag {
+					log.Print(args...)
 				}
 			}
-		}()
 
-		go func() {
-			for {
-				watchedFiles := w.WatchedFiles()
+			if len(cmds) == 0 {
+				cli.ShowAppHelpAndExit(ctx, 1)
+			}
 
-				if err := filepath.Walk(".", func(p string, i os.FileInfo, err error) error {
-					if err != nil {
-						return err
-					}
+			w := watcher.New()
+			{
+				defer w.Close()
 
-					if i.IsDir() {
-						return nil
-					}
+				ch := make(chan struct{}, 1)
 
-					if m := func() bool {
-						for _, file := range excludeFiles {
-							if p == filepath.Clean(file) {
-								return true
+				go func() {
+					for {
+						select {
+						case ev := <-w.Event:
+							switch ev.Op {
+							case watcher.Chmod:
+							default:
+								varbose("received event: ", ev)
+
+								ch <- struct{}{}
 							}
-						}
-
-						return false
-					}(); m {
-						return nil
-					}
-
-					if m := func() bool {
-						ext := filepath.Ext(p)
-
-						for _, t := range targetExts {
-							if ext == t {
-								return true
+						case err := <-w.Error:
+							switch err {
+							case watcher.ErrWatchedFileDeleted:
+							default:
+								log.Fatal(err)
 							}
+						case <-w.Closed:
+							return
 						}
+					}
+				}()
 
-						return false
-					}(); m {
-						file, err := filepath.Abs(p)
+				go func() {
+					for {
+						watchedFiles := w.WatchedFiles()
 
-						if err != nil {
-							return err
-						}
+						if err := filepath.Walk(".", func(p string, i os.FileInfo, err error) error {
+							if err != nil {
+								return err
+							}
 
-						if _, ex := watchedFiles[file]; ex {
+							if i.IsDir() {
+								return nil
+							}
+
+							if m := func() bool {
+								for _, file := range excludeFiles {
+									if p == filepath.Clean(file) {
+										return true
+									}
+								}
+
+								return false
+							}(); m {
+								return nil
+							}
+
+							if m := func() bool {
+								ext := filepath.Ext(p)
+
+								for _, t := range targetExts {
+									if ext == t {
+										return true
+									}
+								}
+
+								return false
+							}(); m {
+								file, err := filepath.Abs(p)
+
+								if err != nil {
+									return err
+								}
+
+								if _, ex := watchedFiles[file]; ex {
+									return nil
+								}
+
+								if err := w.Add(file); err != nil {
+									return err
+								}
+
+								log.Print("watching file: ", file)
+							}
+
 							return nil
+						}); err != nil {
+							log.Fatal(err)
 						}
 
-						if err := w.Add(file); err != nil {
-							return err
-						}
-
-						log.Print("watching file: ", file)
+						time.Sleep(time.Duration(interval) * time.Second)
 					}
+				}()
 
-					return nil
-				}); err != nil {
-					log.Fatal(err)
-				}
+				go func() {
+					for {
+						cmd := exec.Command(cmds[0], cmds[1:]...)
+						cmd.SysProcAttr = &syscall.SysProcAttr{
+							Setpgid: true,
+						}
 
-				time.Sleep(time.Duration(interval) * time.Second)
+						if err := cmd.Start(
+							exec.Stdout(os.Stderr),
+							exec.Stderr(os.Stderr),
+						); err != nil {
+							log.Fatal(err)
+						}
+
+						sig := make(chan os.Signal)
+
+						signal.Notify(sig, syscall.SIGHUP, syscall.SIGINT, syscall.SIGTERM)
+
+						select {
+						case <-sig:
+							syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+
+							os.Exit(0)
+						case <-ch:
+							syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+						}
+					}
+				}()
 			}
-		}()
 
-		go func() {
-			for {
-				cmd := exec.Command(cmds[0], cmds[1:]...)
-				cmd.SysProcAttr = &syscall.SysProcAttr{
-					Setpgid: true,
-				}
-
-				if err := cmd.Start(
-					exec.Stdout(os.Stderr),
-					exec.Stderr(os.Stderr),
-				); err != nil {
-					log.Fatal(err)
-				}
-
-				sig := make(chan os.Signal)
-
-				signal.Notify(sig, syscall.SIGHUP, syscall.SIGINT, syscall.SIGTERM)
-
-				select {
-				case <-sig:
-					syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
-
-					os.Exit(0)
-				case <-ch:
-					syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
-				}
-			}
-		}()
+			return w.Start(time.Duration(interval) * time.Second)
+		},
 	}
 
-	if err := w.Start(time.Duration(interval) * time.Second); err != nil {
+	if err := cmd.Run(os.Args); err != nil {
 		log.Fatal(err)
 	}
 }
