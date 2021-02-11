@@ -26,8 +26,8 @@ func main() {
 
 	cmd := &cli.App{
 		Name:      "watch",
-		UsageText: "watch [--interval] [--targets] [--excludes] [--verbose] [command]",
-		Version:   fmt.Sprintf("%s.%s", Version, Revision),
+		UsageText: "watch [--interval] [--target-exts] [--target-dirs] [--excludes] [--verbose] [command]",
+		Version:   fmt.Sprintf("v%s.%s", Version, Revision),
 		Flags: []cli.Flag{
 			&cli.IntFlag{
 				Name:    "interval",
@@ -36,10 +36,15 @@ func main() {
 				Usage:   "Polling interval",
 			},
 			&cli.StringSliceFlag{
-				Name:    "targets",
+				Name:    "target-exts",
 				Aliases: []string{"t"},
 				Value:   cli.NewStringSlice(".go"),
 				Usage:   "Watch target exts",
+			},
+			&cli.StringSliceFlag{
+				Name:  "target-dirs",
+				Value: cli.NewStringSlice(),
+				Usage: "Additional target dirs",
 			},
 			&cli.StringSliceFlag{
 				Name:    "excludes",
@@ -57,7 +62,8 @@ func main() {
 			var (
 				varboseFlag  = ctx.Bool("verbose")
 				interval     = ctx.Int("interval")
-				targetExts   = ctx.StringSlice("targets")
+				targetExts   = ctx.StringSlice("target-exts")
+				targetDirs   = ctx.StringSlice("target-dirs")
 				excludeFiles = ctx.StringSlice("excludes")
 				cmds         = ctx.Args().Slice()
 			)
@@ -102,61 +108,67 @@ func main() {
 				}()
 
 				go func() {
+					targetDirs = append(targetDirs, ".")
+
 					for {
 						watchedFiles := w.WatchedFiles()
 
-						if err := filepath.Walk(".", func(p string, i os.FileInfo, err error) error {
-							if err != nil {
-								return err
-							}
+						for _, dir := range targetDirs {
+							dir := dir
 
-							if i.IsDir() {
-								return nil
-							}
-
-							if m := func() bool {
-								for _, file := range excludeFiles {
-									if p == filepath.Clean(file) {
-										return true
-									}
-								}
-
-								return false
-							}(); m {
-								return nil
-							}
-
-							if m := func() bool {
-								ext := filepath.Ext(p)
-
-								for _, t := range targetExts {
-									if ext == t {
-										return true
-									}
-								}
-
-								return false
-							}(); m {
-								file, err := filepath.Abs(p)
-
+							if err := filepath.Walk(dir, func(p string, i os.FileInfo, err error) error {
 								if err != nil {
 									return err
 								}
 
-								if _, ex := watchedFiles[file]; ex {
+								if i.IsDir() {
 									return nil
 								}
 
-								if err := w.Add(file); err != nil {
-									return err
+								if m := func() bool {
+									for _, file := range excludeFiles {
+										if p == filepath.Clean(file) {
+											return true
+										}
+									}
+
+									return false
+								}(); m {
+									return nil
 								}
 
-								log.Print("watching file: ", file)
-							}
+								if m := func() bool {
+									ext := filepath.Ext(p)
 
-							return nil
-						}); err != nil {
-							log.Fatal(err)
+									for _, t := range targetExts {
+										if ext == t {
+											return true
+										}
+									}
+
+									return false
+								}(); m {
+									file, err := filepath.Abs(p)
+
+									if err != nil {
+										return err
+									}
+
+									if _, ex := watchedFiles[file]; ex {
+										return nil
+									}
+
+									if err := w.Add(file); err != nil {
+										return err
+									}
+
+									log.Print("watching file: ", file)
+								}
+
+								return nil
+							}); err != nil {
+								log.Fatal(err)
+							}
 						}
 
 						time.Sleep(time.Duration(interval) * time.Second)
